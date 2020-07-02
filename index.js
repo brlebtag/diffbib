@@ -4,11 +4,15 @@ const path = require('path');
 const bibParse = require('bibtex-parse');
 const util = require('util');
 const crypto = require('crypto');
+const leven = require('leven');
 
 const readFile = util.promisify(fs.readFile);
 
+const SIMILARITY_RATE = 0.3;
+
 const Strategies = {
     'hash': hashStrategy,
+    'bruteforce': bruteforceStrategy,
 };
 
 program.version('0.0.1');
@@ -89,6 +93,72 @@ function hashStrategy(fields, origBib, destBib) {
     for(let key in listB) {
         if (listA[key] === undefined) {
             status['OnlyB'].push(listB[key]);
+        }
+    }
+
+    return status;
+}
+
+function findSmallestSimilar(element, fields, list) {
+    let smallest = undefined;
+    let computedLeven = {};
+    
+    for (let el of list) {
+        for (field of fields) {
+            let newLeven = leven(element[field], el[field]);
+            let max = Math.max(element[field].length || 1, el[field].length || 1);
+            let similarity = newLeven / max;
+
+            if (similarity > SIMILARITY_RATE)
+                break;
+
+            if (smallest === undefined)
+            {
+                smallest = el;
+                computedLeven = {[field]: newLeven};
+                break;
+            }
+
+            let currLeven =
+                computedLeven[field] || leven(element[field], smallest[field]);
+
+            if (newLeven > currLeven)
+                break;
+            
+            if (currLeven > newLeven) {
+                smallest = el;
+                computedLeven = {[field]: newLeven};
+                break;
+            } 
+        }
+    }
+
+
+    return smallest;
+}
+
+function bruteforceStrategy(fields, origBib, destBib) {
+    const status = {
+        AB: [],
+        OnlyA: [],
+        OnlyB: [],
+    };
+
+    for(let el of origBib) {
+        const similar = findSmallestSimilar(el, fields, destBib);
+
+        if (similar !== undefined) {
+            status['AB'].push(el);
+        } else {
+            status['OnlyA'].push(el);
+        }
+    }
+
+    for(let el of destBib) {
+        const similar = findSmallestSimilar(el, fields, origBib);
+
+        if (similar === undefined) {
+            status['OnlyB'].push(el);
         }
     }
 
